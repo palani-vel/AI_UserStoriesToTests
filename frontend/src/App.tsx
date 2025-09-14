@@ -7,7 +7,8 @@ function App() {
     storyTitle: '',
     acceptanceCriteria: '',
     description: '',
-    additionalInfo: ''
+    additionalInfo: '',
+    categories: []
   })
   const [results, setResults] = useState<GenerateResponse | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
@@ -24,8 +25,20 @@ function App() {
     setExpandedTestCases(newExpanded)
   }
 
+
   const handleInputChange = (field: keyof GenerateRequest, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const handleCategoryChange = (category: string) => {
+    setFormData(prev => {
+      const categories = prev.categories || []
+      if (categories.includes(category)) {
+        return { ...prev, categories: categories.filter(c => c !== category) }
+      } else {
+        return { ...prev, categories: [...categories, category] }
+      }
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -341,7 +354,8 @@ function App() {
           <p className="subtitle">Generate comprehensive test cases from your user stories</p>
         </div>
         
-        <form onSubmit={handleSubmit} className="form-container">
+  <form onSubmit={handleSubmit} className="form-container">
+
           <div className="form-group">
             <label htmlFor="storyTitle" className="form-label">
               Story Title *
@@ -397,6 +411,44 @@ function App() {
             />
           </div>
           
+          <div className="form-group">
+            <label className="form-label">Test Category</label>
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={formData.categories.includes('Positive')}
+                  onChange={() => handleCategoryChange('Positive')}
+                />{' '}
+                Positive
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={formData.categories.includes('Negative')}
+                  onChange={() => handleCategoryChange('Negative')}
+                />{' '}
+                Negative
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={formData.categories.includes('Edge')}
+                  onChange={() => handleCategoryChange('Edge')}
+                />{' '}
+                Edge
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={formData.categories.includes('Nonfunctional Scenarios')}
+                  onChange={() => handleCategoryChange('Nonfunctional Scenarios')}
+                />{' '}
+                Nonfunctional Scenarios
+              </label>
+            </div>
+          </div>
+
           <button
             type="submit"
             className="submit-btn"

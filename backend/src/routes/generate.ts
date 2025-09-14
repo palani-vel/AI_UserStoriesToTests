@@ -17,10 +17,12 @@ generateRouter.post('/', async (req: express.Request, res: express.Response): Pr
       return
     }
 
-    const request = validationResult.data
 
-    // Build prompts
-    const userPrompt = buildPrompt(request)
+  // 'categories' is now validated and available in request
+  const request = validationResult.data
+
+  // Build prompts
+  const userPrompt = buildPrompt(request)
 
     // Create GroqClient instance here to ensure env vars are loaded
     const groqClient = new GroqClient()

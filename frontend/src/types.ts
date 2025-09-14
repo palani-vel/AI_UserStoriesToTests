@@ -3,6 +3,7 @@ export interface GenerateRequest {
   acceptanceCriteria: string
   description?: string
   additionalInfo?: string
+  categories: string[]
 }
 
 export interface TestCase {

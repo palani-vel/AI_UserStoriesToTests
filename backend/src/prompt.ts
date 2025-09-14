@@ -31,29 +31,24 @@ Guidelines:
 Return ONLY the JSON object, no additional text or formatting.`
 
 export function buildPrompt(request: GenerateRequest): string {
-  const { storyTitle, acceptanceCriteria, description, additionalInfo } = request
-  
-  let userPrompt = `Generate comprehensive test cases for the following user story:
+  const { storyTitle, acceptanceCriteria, description, additionalInfo, categories } = request
 
-Story Title: ${storyTitle}
-
-Acceptance Criteria:
-${acceptanceCriteria}
-`
+  let userPrompt = `Generate comprehensive test cases for the following user story:\n\nStory Title: ${storyTitle}\n\nAcceptance Criteria:\n${acceptanceCriteria}\n`
 
   if (description) {
-    userPrompt += `\nDescription:
-${description}
-`
+    userPrompt += `\nDescription:\n${description}\n`
   }
 
   if (additionalInfo) {
-    userPrompt += `\nAdditional Information:
-${additionalInfo}
-`
+    userPrompt += `\nAdditional Information:\n${additionalInfo}\n`
   }
 
-  userPrompt += `\nGenerate test cases covering positive scenarios, negative scenarios, edge cases, and any authorization or non-functional requirements as applicable. Return only the JSON response.`
+  if (categories && categories.length > 0) {
+    userPrompt += `\nGenerate test cases ONLY for the following categories: ${categories.join(', ')}.`
+  } else {
+    userPrompt += `\nGenerate test cases covering positive scenarios, negative scenarios, edge cases, and any authorization or non-functional requirements as applicable.`
+  }
+  userPrompt += ` Return only the JSON response.`
 
   return userPrompt
 }
