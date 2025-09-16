@@ -14,6 +14,9 @@ function App() {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [expandedTestCases, setExpandedTestCases] = useState<Set<string>>(new Set())
+  const [jiraId, setJiraId] = useState<string>('')
+  const [jiraLoading, setJiraLoading] = useState<boolean>(false)
+  const [jiraError, setJiraError] = useState<string | null>(null)
 
   const toggleTestCaseExpansion = (testCaseId: string) => {
     const newExpanded = new Set(expandedTestCases)
@@ -24,7 +27,6 @@ function App() {
     }
     setExpandedTestCases(newExpanded)
   }
-
 
   const handleInputChange = (field: keyof GenerateRequest, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -41,17 +43,42 @@ function App() {
     })
   }
 
+  const handleJiraIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setJiraId(e.target.value)
+  }
+
+  const handleFetchJiraDetails = async () => {
+    setJiraLoading(true)
+    setJiraError(null)
+    try {
+      // Example: fetch from backend
+      const response = await fetch(`/api/jira-details?jiraId=${encodeURIComponent(jiraId)}`)
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to fetch Jira details')
+      }
+      const data = await response.json()
+      // Optionally map fields to formData
+      setFormData(prev => ({
+        ...prev,
+        storyTitle: data.name || prev.storyTitle,
+        description: data.description || prev.description
+      }))
+    } catch (err: any) {
+      setJiraError(err.message || 'Failed to fetch Jira details')
+    } finally {
+      setJiraLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
     if (!formData.storyTitle.trim() || !formData.acceptanceCriteria.trim()) {
       setError('Story Title and Acceptance Criteria are required')
       return
     }
-
     setIsLoading(true)
     setError(null)
-    
     try {
       const response = await generateTests(formData)
       setResults(response)
@@ -353,8 +380,31 @@ function App() {
           <h1 className="title">User Story to Tests</h1>
           <p className="subtitle">Generate comprehensive test cases from your user stories</p>
         </div>
-        
-  <form onSubmit={handleSubmit} className="form-container">
+
+        <form onSubmit={handleSubmit} className="form-container">
+          {/* JIRA ID and Fetch Details UI - vertical layout */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label htmlFor="jiraId" className="form-label">JIRA ID</label>
+            <input
+              type="text"
+              id="jiraId"
+              className="form-input"
+              value={jiraId}
+              onChange={handleJiraIdChange}
+              placeholder="Enter JIRA issue type ID (e.g. 10003)"
+              style={{ width: '100%' }}
+            />
+            <button
+              type="button"
+              className="submit-btn"
+              style={{ minWidth: 140, height: 48, fontSize: 16, boxShadow: '0 1px 4px rgba(52,152,219,0.08)', marginTop: 12, alignSelf: 'flex-start' }}
+              onClick={handleFetchJiraDetails}
+              disabled={jiraLoading || !jiraId.trim()}
+            >
+              {jiraLoading ? 'Fetching...' : 'Fetch Details'}
+            </button>
+            {jiraError && <div className="error-banner" style={{ marginTop: 12 }}>{jiraError}</div>}
+          </div>
 
           <div className="form-group">
             <label htmlFor="storyTitle" className="form-label">
