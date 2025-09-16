@@ -51,18 +51,42 @@ function App() {
     setJiraLoading(true)
     setJiraError(null)
     try {
-      // Example: fetch from backend
-      const response = await fetch(`/api/jira-details?jiraId=${encodeURIComponent(jiraId)}`)
+      const response = await fetch(`/api/jira-details?jiraId=${encodeURIComponent(jiraId)}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-store'
+        }
+      })
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || 'Failed to fetch Jira details')
+        let data = {};
+        try {
+          data = await response.json();
+        } catch {}
+        throw new Error((data as any).error || 'Failed to fetch Jira details')
       }
-      const data = await response.json()
-      // Optionally map fields to formData
+      const data = await response.json();
+      // Parse acceptance criteria from description
+      let description = data.description || '';
+      let acceptanceCriteria = '';
+      // Look for 'h2. Acceptance criteria' or '* ' list after it
+      const acHeader = /h2\.\s*Acceptance criteria\s*/i;
+      const acIndex = description.search(acHeader);
+      if (acIndex !== -1) {
+        // Split at the header
+        const beforeAC = description.slice(0, acIndex).trim();
+        const afterAC = description.slice(acIndex).replace(acHeader, '').trim();
+        // Extract bullet points or lines as acceptance criteria
+        const acMatch = afterAC.match(/(\* .+|\n\* .+)+/g);
+        acceptanceCriteria = acMatch ? acMatch.join('\n').replace(/\n/g, '\n') : afterAC;
+        description = beforeAC;
+      }
       setFormData(prev => ({
         ...prev,
-        storyTitle: data.name || prev.storyTitle,
-        description: data.description || prev.description
+        storyTitle: data.storyTitle || prev.storyTitle,
+        description: description || prev.description,
+        acceptanceCriteria: acceptanceCriteria || prev.acceptanceCriteria,
+        additionalInfo: data.additionalInfo || prev.additionalInfo
       }))
     } catch (err: any) {
       setJiraError(err.message || 'Failed to fetch Jira details')
