@@ -1,0 +1,4 @@
+{
+  "apiKey": "REPLACE_WITH_ENV_VARIABLE",
+  "apiUrl": "https://api.groq.com/v1/complete"
+}
