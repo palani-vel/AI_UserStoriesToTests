@@ -15,6 +15,9 @@ generateRouter.post('/', async (req: express.Request, res: express.Response): Pr
         error: `Error on validation: ${validationResult.error.message}`
       })
       return
+    } else {
+      // All good, proceed
+      console.log('Request body validated successfully');
     }
 
 
