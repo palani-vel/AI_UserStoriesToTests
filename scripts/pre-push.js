@@ -73,19 +73,43 @@ function getFetch() {
   }
 }
 
-// Call Groq API: expects the API to accept a JSON body { prompt }
+// Call Groq API and support both legacy `prompt` endpoints and OpenAI-style chat endpoints.
 async function callGroq(apiUrl, apiKey, prompt) {
   const fetchFn = getFetch();
   if (!fetchFn) throw new Error('No fetch available. Use Node 18+ or install node-fetch.');
 
-  const res = await fetchFn(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify({ prompt }),
-  });
+  // Heuristic: if the URL looks like an OpenAI/chat completions endpoint, use the chat payload.
+  const useChat = /\/chat|openai|chat.completions/.test(apiUrl);
+
+  let res;
+  if (useChat) {
+    const body = {
+      model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: 'You are an assistant that outputs unit tests or files based on a diff. Respond with files in JSON or plain text with file headers.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.2
+    };
+
+    res = await fetchFn(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+      },
+      body: JSON.stringify(body)
+    });
+  } else {
+    res = await fetchFn(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+      },
+      body: JSON.stringify({ prompt })
+    });
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -94,9 +118,17 @@ async function callGroq(apiUrl, apiKey, prompt) {
     throw err;
   }
 
-  // Prefer JSON
   const contentType = res.headers && res.headers.get ? res.headers.get('content-type') : '';
-  if (contentType && contentType.includes('application/json')) return res.json();
+  // If chat-style response, the useful text is often in choices[0].message.content
+  if (contentType && contentType.includes('application/json')) {
+    const json = await res.json();
+    // Try to extract chat content
+    const chatContent = json.choices?.[0]?.message?.content || json.choices?.[0]?.text;
+    if (chatContent) return { text: chatContent, raw: json };
+    // otherwise return the full JSON
+    return { json };
+  }
+
   return { text: await res.text() };
 }
 

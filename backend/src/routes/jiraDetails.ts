@@ -11,7 +11,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.setHeader('Expires', '0');
   const jiraId = req.query.jiraId as string;
   if (!jiraId) {
-    res.status(400).json({ error: 'Missing JIRA ID' });
+    res.status(400).json({ error: 'JIRA ID Missing' });
     return;
   }
 

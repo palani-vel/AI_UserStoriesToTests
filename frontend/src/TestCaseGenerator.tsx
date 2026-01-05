@@ -135,7 +135,7 @@ const TestCaseGenerator: React.FC = () => {
           Generate
         </button>
       </div>
-      {error && <div style={{ background: '#e74c3c', color: '#fff', padding: 12, borderRadius: 6, marginBottom: 16 }}>{error}</div>}
+      {error && <div style={{ background: '#ee2610ff', color: '#fff', padding: 12, borderRadius: 6, marginBottom: 16 }}>{error}</div>}
       {results && (
         <div style={{ marginTop: 32 }}>
           <h3 style={{ color: '#2c3e50', marginBottom: 12 }}>Results</h3>
@@ -152,7 +152,7 @@ const TestCaseGenerator: React.FC = () => {
                   </ul>
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, color: '#e74c3c', marginBottom: 6 }}>Negative Test Cases</div>
+                  <div style={{ fontWeight: 600, color: '#ed2b16ff', marginBottom: 6 }}>Negative Test Cases</div>
                   <ul style={{ background: '#f8f9fa', borderRadius: 6, padding: 12 }}>
                     {data.negative.map((val: any, i: number) => (
                       <li key={i} style={{ marginBottom: 4 }}>{val.toString()}</li>

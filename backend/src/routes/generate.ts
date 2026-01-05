@@ -63,7 +63,7 @@ generateRouter.post('/', async (req: express.Request, res: express.Response): Pr
     } catch (llmError) {
       console.error('LLM error:', llmError)
       res.status(502).json({
-        error: 'Failed to generate tests from LLM service'
+        error: 'Failed to generate tests LLM service'
       })
       return
     }
