@@ -4,36 +4,23 @@
  * Node implementation for Git pre-push hook.
  *
  * Behavior:
- *  - Reads staged diff via `git diff --cached`
+ *  - Reads diff from commits being pushed (or staged changes)
  *  - Sends diff + few-shot prompt to Groq API
- *  - Parses response for test files and writes them under `__tests__/` or returned paths
- *  - Prompts developer to confirm continuing the push
- *  - Fails gracefully if API is unavailable or developer aborts
+ *  - Parses response for test files and writes them under `__tests__/`
+ *  - Generated files remain untracked and are NOT auto-staged
+ *  - NEVER blocks or aborts push under any condition
  *
  * Configuration:
- *  - `GROQ_API_KEY` and `GROQ_API_URL` environment variables are preferred
- *  - Fallback to `config/groq.config.json` if present
+ *  - `GROQ_API_KEY` and `GROQ_API_URL` environment variables preferred
+ *  - Fallback to `config/groq.config.json` if env vars not set
  */
 
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const readline = require('readline');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'groq.config.json');
 const PROMPT_PATH = path.join(__dirname, 'groq_prompt.txt');
-
-// Simple yes/no prompt helper
-function askYesNo(question) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(question + ' ', (answer) => {
-      rl.close();
-      const normalized = (answer || '').trim().toLowerCase();
-      resolve(normalized === 'y' || normalized === 'yes');
-    });
-  });
-}
 
 // Load config (env vars override file)
 function loadConfig() {
@@ -46,7 +33,7 @@ function loadConfig() {
       const parsed = JSON.parse(raw);
       Object.assign(cfg, parsed);
     } catch (e) {
-      // ignore JSON parse errors; we'll handle missing key later
+      // ignore JSON parse errors
     }
   }
   return cfg;
@@ -55,25 +42,21 @@ function loadConfig() {
 // Get diff from commits being pushed (or fall back to staged diff)
 function getStagedDiff() {
   try {
-    // Try to get diff from commits being pushed to remote
-    // First, try to find the merge base and compare HEAD to it
     let diff = '';
     try {
-      // Get the remote tracking branch for current branch
+      // Get current branch
       const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
       const remoteBranch = `origin/${branch}`;
       // Check if remote branch exists
-      const remoteBranchExists = execSync(`git rev-parse ${remoteBranch} 2>&1`, { encoding: 'utf8' }).trim();
-      if (remoteBranchExists && !remoteBranchExists.includes('fatal')) {
-        // Get diff between remote and local HEAD
-        diff = execSync(`git diff ${remoteBranch}...HEAD --no-color`, { encoding: 'utf8' });
-      }
+      execSync(`git rev-parse ${remoteBranch}`, { encoding: 'utf8', stdio: 'ignore' });
+      // Get diff between remote and local HEAD
+      diff = execSync(`git diff ${remoteBranch}...HEAD --no-color`, { encoding: 'utf8' });
     } catch (e) {
-      // Remote branch may not exist yet
+      // Remote branch may not exist yet; fall back to staged
     }
-    
+
     if (diff && diff.trim()) return diff;
-    
+
     // Fall back to staged changes
     return execSync('git diff --cached --no-color', { encoding: 'utf8' });
   } catch (e) {
@@ -81,24 +64,22 @@ function getStagedDiff() {
   }
 }
 
-// Ensure fetch exists (Node 18+). Fallback to node-fetch if available.
+// Get fetch function (Node 18+ or node-fetch)
 function getFetch() {
   if (typeof fetch !== 'undefined') return fetch;
   try {
     // eslint-disable-next-line global-require
-    const nf = require('node-fetch');
-    return nf;
+    return require('node-fetch');
   } catch (e) {
     return null;
   }
 }
 
-// Call Groq API and support both legacy `prompt` endpoints and OpenAI-style chat endpoints.
+// Call Groq API (supports both chat and prompt endpoints)
 async function callGroq(apiUrl, apiKey, prompt) {
   const fetchFn = getFetch();
   if (!fetchFn) throw new Error('No fetch available. Use Node 18+ or install node-fetch.');
 
-  // Heuristic: if the URL looks like an OpenAI/chat completions endpoint, use the chat payload.
   const useChat = /\/chat|openai|chat.completions/.test(apiUrl);
 
   let res;
@@ -106,7 +87,7 @@ async function callGroq(apiUrl, apiKey, prompt) {
     const body = {
       model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: 'You are an assistant that outputs unit tests or files based on a diff. Respond with files in JSON or plain text with file headers.' },
+        { role: 'system', content: 'You are an assistant that outputs unit tests based on a diff. Respond with files in JSON: {"files":[{"path":"__tests__/x.test.js","content":"..."}]} or as text with file headers like // __tests__/x.test.js' },
         { role: 'user', content: prompt }
       ],
       temperature: 0.2
@@ -133,45 +114,46 @@ async function callGroq(apiUrl, apiKey, prompt) {
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    const err = new Error(`Groq API request failed: ${res.status} ${res.statusText} ${text}`);
+    const err = new Error(`Groq API error: ${res.status} ${res.statusText}`);
     err.status = res.status;
+    err.details = text;
     throw err;
   }
 
   const contentType = res.headers && res.headers.get ? res.headers.get('content-type') : '';
-  // If chat-style response, the useful text is often in choices[0].message.content
   if (contentType && contentType.includes('application/json')) {
     const json = await res.json();
-    // Try to extract chat content
     const chatContent = json.choices?.[0]?.message?.content || json.choices?.[0]?.text;
     if (chatContent) return { text: chatContent, raw: json };
-    // otherwise return the full JSON
     return { json };
   }
 
   return { text: await res.text() };
 }
 
-// Parse response into files array: [{ path, content }]
+// Parse response into files array
 function parseFilesFromResponse(resp) {
   if (!resp) return [];
   if (Array.isArray(resp.files)) return resp.files;
   if (resp.files && typeof resp.files === 'object') {
     return Object.entries(resp.files).map(([p, c]) => ({ path: p, content: c }));
   }
+
   const text = resp.text || (typeof resp === 'string' ? resp : '');
   const files = [];
-  // Detect file header comments like: // __tests__/name.test.js
   const headerRe = /^(?:\/\/|#)\s*(\/?[^\s\r\n]+)\s*$/gm;
   let match;
   const headers = [];
+
   while ((match = headerRe.exec(text)) !== null) {
     headers.push({ path: match[1].trim(), index: match.index });
   }
+
   if (headers.length === 0) {
     if (text.trim()) files.push({ path: '__tests__/ai-generated.test.js', content: text });
     return files;
   }
+
   for (let i = 0; i < headers.length; i++) {
     const start = headers[i].index;
     const headerLine = headers[i].path;
@@ -180,95 +162,92 @@ function parseFilesFromResponse(resp) {
     const chunk = text.slice(contentStart + 1, end).replace(/^\s+|\s+$/g, '');
     files.push({ path: headerLine.startsWith('/') ? headerLine.slice(1) : headerLine, content: chunk });
   }
+
   return files;
 }
 
-// Write files safely (avoid overwriting existing files without adding .ai suffix)
+// Write files safely (creates new files, appends .ai to existing files)
 function writeFiles(files) {
   const written = [];
   for (const f of files) {
     if (!f || !f.path) continue;
     let rel = f.path;
-    // If only filename provided, put under __tests__
-    if (!path.dirname(rel) || path.dirname(rel) === '.') rel = path.posix.join('__tests__', rel);
+    if (!path.dirname(rel) || path.dirname(rel) === '.') {
+      rel = path.posix.join('__tests__', rel);
+    }
     if (!path.extname(rel)) rel = rel + '.test.js';
     const full = path.join(process.cwd(), rel);
     const dir = path.dirname(full);
-    fs.mkdirSync(dir, { recursive: true });
-    let target = full;
-    if (fs.existsSync(target)) {
-      const parsed = path.parse(target);
-      target = path.join(parsed.dir, parsed.name + '.ai' + parsed.ext);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      let target = full;
+      if (fs.existsSync(target)) {
+        const parsed = path.parse(target);
+        target = path.join(parsed.dir, parsed.name + '.ai' + parsed.ext);
+      }
+      fs.writeFileSync(target, f.content, 'utf8');
+      written.push(path.relative(process.cwd(), target));
+    } catch (writeErr) {
+      // Silently skip write errors
     }
-    fs.writeFileSync(target, f.content, 'utf8');
-    written.push(path.relative(process.cwd(), target));
   }
   return written;
 }
 
+// Main: run silently, NEVER exit non-zero
 (async function main() {
   try {
     const cfg = loadConfig();
     const apiKey = cfg.apiKey;
-    const apiUrl = cfg.apiUrl || 'https://api.groq.com/v1/complete';
+    const apiUrl = cfg.apiUrl || 'https://api.groq.com/openai/v1/chat/completions';
 
-    // 1) get staged diff
+    // Get diff
     const diff = getStagedDiff();
     if (!diff || diff.trim() === '') {
-      // Nothing staged; allow push to continue
+      // Nothing to generate; allow push
       process.exit(0);
     }
 
-    // 2) load few-shot prompt template
+    // Load prompt template
     let promptTemplate = '';
     if (fs.existsSync(PROMPT_PATH)) {
       promptTemplate = fs.readFileSync(PROMPT_PATH, 'utf8');
     } else {
-      promptTemplate = 'Generate unit tests from the given diff. Respond with files as JSON: { "files": [ { "path": "__tests__/x.test.js", "content": "..." } ] }';
+      promptTemplate = 'Generate unit tests from the given diff. Respond with files in JSON: { "files": [ { "path": "__tests__/x.test.js", "content": "..." } ] }';
     }
     const fullPrompt = `${promptTemplate}\n\nDiff:\n${diff}`;
 
-    // 3) Call Groq API
+    // Call Groq API
     let resp;
     try {
       resp = await callGroq(apiUrl, apiKey, fullPrompt);
     } catch (err) {
-      // If the API returned a 404 it often means the configured endpoint is incorrect.
-      // Treat 404 as non-fatal: inform the user and continue the push so normal workflow isn't blocked.
-      if (err && err.status === 404) {
-        console.warn('Groq API returned 404 (endpoint not found). Skipping AI test generation and continuing push.');
-        process.exit(0);
-      }
-      console.error('Groq API call failed:', err && err.message ? err.message : err);
-      const proceed = await askYesNo('Generating tests failed. Continue push without AI tests? (y/N)');
-      if (proceed) process.exit(0);
-      console.error('Aborting push.');
-      process.exit(1);
+      // Log the error but continue push
+      console.log(`[pre-push] Groq API error: ${err.message}`);
+      if (err.details) console.log(`[pre-push] Details: ${err.details.substring(0, 200)}`);
+      process.exit(0);
     }
 
-    // 4) parse and write files
+    // Parse and write files
     const files = parseFilesFromResponse(resp);
     if (!files || files.length === 0) {
-      console.log('No test files were returned by the AI.');
-      const proceed = await askYesNo('Continue push without tests? (y/N)');
-      if (proceed) process.exit(0);
-      process.exit(1);
+      console.log('[pre-push] No test files generated by AI.');
+      process.exit(0);
     }
 
     const written = writeFiles(files);
-    console.log('AI-generated test files (not staged):');
-    for (const w of written) console.log('  -', w);
-
-    const ok = await askYesNo('Review the files above. Continue push? (y/N)');
-    if (!ok) {
-      console.error('Push aborted by developer.');
-      process.exit(1);
+    if (written.length > 0) {
+      console.log('[pre-push] Generated test files (untracked):');
+      for (const w of written) {
+        console.log(`  ✓ ${w}`);
+      }
     }
 
-    // Exit 0 to allow push to continue. Generated files are not auto-staged.
+    // Always exit 0: push continues regardless
     process.exit(0);
   } catch (err) {
-    console.error('Pre-push script error:', err && err.stack ? err.stack : err);
-    process.exit(1);
+    // Catch-all: log but never abort push
+    console.log(`[pre-push] Unexpected error: ${err && err.message ? err.message : err}`);
+    process.exit(0);
   }
 })();
