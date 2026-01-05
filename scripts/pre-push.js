@@ -52,9 +52,29 @@ function loadConfig() {
   return cfg;
 }
 
-// Get staged diff
+// Get diff from commits being pushed (or fall back to staged diff)
 function getStagedDiff() {
   try {
+    // Try to get diff from commits being pushed to remote
+    // First, try to find the merge base and compare HEAD to it
+    let diff = '';
+    try {
+      // Get the remote tracking branch for current branch
+      const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+      const remoteBranch = `origin/${branch}`;
+      // Check if remote branch exists
+      const remoteBranchExists = execSync(`git rev-parse ${remoteBranch} 2>&1`, { encoding: 'utf8' }).trim();
+      if (remoteBranchExists && !remoteBranchExists.includes('fatal')) {
+        // Get diff between remote and local HEAD
+        diff = execSync(`git diff ${remoteBranch}...HEAD --no-color`, { encoding: 'utf8' });
+      }
+    } catch (e) {
+      // Remote branch may not exist yet
+    }
+    
+    if (diff && diff.trim()) return diff;
+    
+    // Fall back to staged changes
     return execSync('git diff --cached --no-color', { encoding: 'utf8' });
   } catch (e) {
     return '';
