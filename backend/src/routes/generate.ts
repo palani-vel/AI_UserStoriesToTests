@@ -12,7 +12,7 @@ generateRouter.post('/', async (req: express.Request, res: express.Response): Pr
     
     if (!validationResult.success) {
       res.status(400).json({
-        error: `Validation error: ${validationResult.error.message}`
+        error: `Error on validation: ${validationResult.error.message}`
       })
       return
     }
@@ -49,6 +49,9 @@ generateRouter.post('/', async (req: express.Request, res: express.Response): Pr
           error: 'LLM response does not match expected schema'
         })
         return
+      }else {
+        // All good, proceed
+        console.log('LLM response validated successfully');
       }
 
       // Add token usage info if available
