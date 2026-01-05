@@ -17,7 +17,7 @@ generateRouter.post('/', async (req: express.Request, res: express.Response): Pr
       return
     } else {
       // All good, proceed
-      console.log('Request body validated successfully');
+      console.log('Request body successfully validated');
     }
 
 
