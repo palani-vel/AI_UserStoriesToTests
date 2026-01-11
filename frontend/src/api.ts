@@ -7,7 +7,15 @@ export async function generateTests(request: GenerateRequest): Promise<GenerateR
     const response = await fetch(`${API_BASE_URL}/generate-tests`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/html',
+      },
+      body: JSON.stringify(request),
+    })
+
+    const response2 = await fetch(`${API_BASE_URL}/generate-tests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/html',
       },
       body: JSON.stringify(request),
     })
