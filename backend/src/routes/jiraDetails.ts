@@ -33,7 +33,7 @@ router.get('/', async (req: Request, res: Response) => {
       method: 'GET',
       headers: {
         'Authorization': `Basic ${authString}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/html'
       }
     });
 
